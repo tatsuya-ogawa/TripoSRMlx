@@ -26,6 +26,7 @@ class TSRTestViewModel: ObservableObject {
     private var tsrSystem: TSRSystem?
     private var _lastSceneCodes: MLXArray?
     private let modelLoader = ModelLoader()
+    private let objFileManager = OBJFileManager()
 
     // Read-only access to lastSceneCodes for UI
     var lastSceneCodes: MLXArray? {
@@ -227,7 +228,7 @@ class TSRTestViewModel: ObservableObject {
         }
     }
 
-    /// Export mesh to file
+    /// Export mesh to file (for sharing outside the app)
     func exportMesh(at index: Int = 0, format: String = "obj") -> URL? {
         guard index < extractedMeshes.count else {
             errorMessage = "Invalid mesh index"
@@ -246,6 +247,21 @@ class TSRTestViewModel: ObservableObject {
             errorMessage = "Export failed: \(error.localizedDescription)"
             return nil
         }
+    }
+
+    /// Save mesh to app's internal storage (library)
+    func saveMeshToLibrary(at index: Int = 0, name: String? = nil) throws -> SavedOBJFile {
+        guard index < extractedMeshes.count else {
+            throw TSRTestError.processingFailed("Invalid mesh index")
+        }
+
+        let meshName = name ?? "model_\(Date().timeIntervalSince1970)"
+        return try objFileManager.saveOBJFile(mesh: extractedMeshes[index], name: meshName)
+    }
+
+    /// Access the OBJ file manager
+    var fileManager: OBJFileManager {
+        return objFileManager
     }
 
     /// Reset the test state

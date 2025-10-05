@@ -28,21 +28,30 @@ struct ContentView: View {
 
                 // Navigation buttons
                 VStack(spacing: 16) {
-                    NavigationLink(destination: ModelInspectionView()) {
-                        MenuButton(
-                            title: "Model Inspector",
-                            subtitle: "Inspect TSRSystem components and state_dict",
-                            icon: "doc.text.magnifyingglass",
-                            color: .blue
-                        )
-                    }
-
                     NavigationLink(destination: TSRTestView()) {
                         MenuButton(
                             title: "TripoSR Demo",
                             subtitle: "Generate 3D models from images",
                             icon: "cube.fill",
                             color: .green
+                        )
+                    }
+
+                    NavigationLink(destination: SavedModelsView()) {
+                        MenuButton(
+                            title: "Saved Models",
+                            subtitle: "View and manage saved OBJ files",
+                            icon: "folder.fill",
+                            color: .orange
+                        )
+                    }
+
+                    NavigationLink(destination: ModelInspectionView()) {
+                        MenuButton(
+                            title: "Model Inspector",
+                            subtitle: "Inspect TSRSystem components and state_dict",
+                            icon: "doc.text.magnifyingglass",
+                            color: .blue
                         )
                     }
 

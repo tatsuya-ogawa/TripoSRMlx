@@ -10,6 +10,8 @@ import MLX
 
 struct TSRTestView: View {
     @StateObject private var viewModel = TSRTestViewModel()
+    @State private var showingSaveSuccess = false
+    @State private var savedFileName = ""
 
     var body: some View {
         ScrollView {
@@ -61,6 +63,26 @@ struct TSRTestView: View {
         }
         .navigationTitle("TSR Robot Test")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay(
+            Group {
+                if showingSaveSuccess {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Saved: \(savedFileName)")
+                                .foregroundColor(.white)
+                        }
+                        .padding()
+                        .background(Color.black.opacity(0.8))
+                        .cornerRadius(10)
+                        .padding(.bottom, 50)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+        )
     }
 
     // MARK: - View Components
@@ -351,29 +373,72 @@ struct TSRTestView: View {
                                 }
                             )
 
-                        VStack(spacing: 4) {
+                        VStack(spacing: 8) {
                             Text("Vertices: \(mesh.vertices.dim(0))")
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                             Text("Faces: \(mesh.faces.dim(0))")
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
 
-                            Button(action: {
-                                if let url = viewModel.exportMesh(at: index) {
-                                    // Show success or share sheet
-                                    print("Mesh exported to: \(url)")
+                            VStack(spacing: 6) {
+                                Button(action: {
+                                    do {
+                                        let savedFile = try viewModel.saveMeshToLibrary(at: index)
+                                        print("Mesh saved to library: \(savedFile.name)")
+
+                                        // Show success feedback
+                                        savedFileName = savedFile.name
+                                        withAnimation {
+                                            showingSaveSuccess = true
+                                        }
+
+                                        // Hide after 2 seconds
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            withAnimation {
+                                                showingSaveSuccess = false
+                                            }
+                                        }
+                                    } catch {
+                                        print("Failed to save mesh: \(error)")
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "square.and.arrow.down")
+                                            .font(.caption)
+                                        Text("Save to Library")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(Color.green)
+                                    .cornerRadius(8)
                                 }
-                            }) {
-                                Text("Export OBJ")
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.blue.opacity(0.1))
-                                    .cornerRadius(6)
+
+                                Button(action: {
+                                    if let url = viewModel.exportMesh(at: index) {
+                                        // Show success or share sheet
+                                        print("Mesh exported to: \(url)")
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .font(.caption)
+                                        Text("Export")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(Color.blue)
+                                    .cornerRadius(8)
+                                }
                             }
                         }
+                        .padding(.horizontal, 4)
                     }
                 }
             }

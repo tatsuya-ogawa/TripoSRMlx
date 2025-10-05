@@ -140,7 +140,7 @@ nonisolated public struct TriMesh {
     /// This converts from the internal coordinate system to OBJ standard orientation
     /// Transformation: (x, y, z) -> (y, -z, x) [yzx_-++]
     private func applyCoordinateTransform(x: Float, y: Float, z: Float) -> (Float, Float, Float) {
-        return (y, -z, x)
+        return (-y, z, x)
     }
 
     /// Export mesh to OBJ format string
