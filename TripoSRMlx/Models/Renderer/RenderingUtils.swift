@@ -75,9 +75,11 @@ nonisolated public func chunkBatch<T>(_ processFn: (MLXArray) -> T, chunkSize: I
     var results: [T] = []
 
     for i in stride(from: 0, to: totalSize, by: chunkSize) {
-        let endIdx = min(i + chunkSize, totalSize)
-        let chunk = input[i..<endIdx]
-        results.append(processFn(chunk))
+        autoreleasepool{
+            let endIdx = min(i + chunkSize, totalSize)
+            let chunk = input[i..<endIdx]
+            results.append(processFn(chunk))
+        }
     }
 
     return results

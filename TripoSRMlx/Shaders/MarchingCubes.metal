@@ -360,6 +360,8 @@ struct MarchingCubesParams {
     float threshold;
     float3 boundsMin;
     float3 boundsMax;
+    int3 chunkOrigin;
+    int3 chunkSize;
 };
 
 // Compute kernel for marching cubes
@@ -372,15 +374,20 @@ kernel void marchingCubesKernel(device const float* densityField [[buffer(0)]],
                                uint3 gid [[thread_position_in_grid]]) {
 
     int resolution = params.resolution;
-    if (gid.x >= resolution - 1 || gid.y >= resolution - 1 || gid.z >= resolution - 1) {
+
+    if (gid.x >= params.chunkSize.x || gid.y >= params.chunkSize.y || gid.z >= params.chunkSize.z) {
+        return;
+    }
+
+    int3 cubePos = params.chunkOrigin + int3(gid);
+    if (cubePos.x >= resolution - 1 || cubePos.y >= resolution - 1 || cubePos.z >= resolution - 1) {
         return;
     }
 
     // Get density values and gradients at cube corners
     float cubeValues[8];
     float3 cubeGradients[8];
-    int3 cubePos = int3(gid);
-    float3 cellSize = (params.boundsMax - params.boundsMin) / float(resolution - 1);
+    float3 cellSize = (params.boundsMax - params.boundsMin) / float(max(resolution - 1, 1));
 
     for (int i = 0; i < 8; i++) {
         int3 cornerPos = cubePos + vertexOffsetTable[i];

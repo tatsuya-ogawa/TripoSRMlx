@@ -16,6 +16,7 @@ nonisolated public let TRIPO_RADIUS:Float=0.87
 /// Configuration for the complete TSR system
 nonisolated public struct TSRSystemConfig {
     public let condImageSize: Int
+    public var inferenceMode: Bool = true
 
     // Component configurations
     public let imageTokenizerConfig: ImageTokenizerConfig
@@ -290,6 +291,7 @@ nonisolated public final class TSRSystem: Module {
         threshold: Float = 25.0
     ) -> [TriMesh] {
 
+        renderer.setInferenceMode(config.inferenceMode)
         setMarchingCubesResolution(resolution)
 
         var meshes: [TriMesh] = []
@@ -310,7 +312,7 @@ nonisolated public final class TSRSystem: Module {
                 positions: scaledVertices,
                 triplane: sceneCode
             )
-
+            MLX.GPU.clearCache()
             let density = queryResult.densityAct
 
             // Extract isosurface using marching cubes

@@ -9,6 +9,7 @@
 import Foundation
 import MLX
 import MLXNN
+import Metal
 
 /// Configuration for the TriplaneNeRFRenderer
 nonisolated public struct TriplaneNeRFRendererConfig {
@@ -63,8 +64,10 @@ nonisolated public struct NeRFRendererOutput {
 nonisolated public final class TriplaneNeRFRenderer: Module {
 
     public let config: TriplaneNeRFRendererConfig
-    private var chunkSize: Int = 0
+    private var chunkSize: Int = 0  // 0 = auto-calculate
     private var isRandomized: Bool = false
+    private var inferenceMode: Bool = false
+    private var metalGridSampler: MetalGridSample?
 
     public init(config: TriplaneNeRFRendererConfig) {
         self.config = config
@@ -72,9 +75,89 @@ nonisolated public final class TriplaneNeRFRenderer: Module {
     }
 
     /// Set the chunk size for memory-efficient processing
+    /// - Parameter chunkSize: Number of samples per chunk. Use 0 for automatic calculation based on available GPU memory.
     public func setChunkSize(_ chunkSize: Int) {
-        assert(chunkSize >= 0, "chunk_size must be a non-negative integer (0 for no chunking).")
+        assert(chunkSize >= 0, "chunk_size must be a non-negative integer (0 for automatic calculation).")
         self.chunkSize = chunkSize
+    }
+
+    /// Calculate optimal chunk size based on available GPU memory
+    /// - Parameters:
+    ///   - totalSamples: Total number of samples to process
+    ///   - triplaneDim: Triplane feature dimension (C)
+    ///   - memoryFraction: Fraction of available memory to use (default: 0.7)
+    /// - Returns: Optimal chunk size
+    private func calculateOptimalChunkSize(totalSamples: Int, triplaneDim: Int, memoryFraction: Float = 0.7) -> Int {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            // Fallback if Metal device not available
+            return min(8192, totalSamples)
+        }
+
+        // Get available GPU memory
+        let availableMemory = device.recommendedMaxWorkingSetSize
+        let usableMemory = Int(Float(availableMemory) * memoryFraction)
+
+        // Estimate memory per sample:
+        // - Grid sample output: 3 planes × triplaneDim × sizeof(float) = 12 * triplaneDim bytes
+        // - Feature reduction: triplaneDim * 3 (concat) or triplaneDim (mean)
+        // - Decoder intermediate: estimate ~4x feature size
+        // - Safety margin: 2x
+        let featureDim = config.featureReduction == "concat" ? triplaneDim * 3 : triplaneDim
+        let bytesPerSample = (featureDim * 4) * 4 * 2  // features × sizeof(float) × decoder overhead × safety margin
+
+        // Calculate chunk size
+        let calculatedChunkSize = max(1, usableMemory / bytesPerSample)
+
+        // Clamp to reasonable range: [256, 131072] (128K max)
+        let minChunkSize = 256
+        let maxChunkSize = 131072  // 128K samples max per chunk
+        let optimalChunkSize = min(maxChunkSize, max(minChunkSize, calculatedChunkSize))
+
+        print("GPU Memory: \(availableMemory / 1024 / 1024)MB, Usable: \(usableMemory / 1024 / 1024)MB")
+        print("Estimated bytes per sample: \(bytesPerSample), Optimal chunk size: \(optimalChunkSize)")
+
+        return min(optimalChunkSize, totalSamples)
+    }
+
+    /// Enable/disable inference mode (uses Metal compute shader for grid sampling)
+    public func setInferenceMode(_ enabled: Bool) {
+        self.inferenceMode = enabled
+        if enabled && metalGridSampler == nil {
+            metalGridSampler = try? MetalGridSample()
+        }
+    }
+
+    /// Grid sample with automatic mode selection (Metal for inference, MLX for training)
+    private func performGridSample(_ input: MLXArray, grid: MLXArray, alignCorners: Bool, mode: String) -> MLXArray {
+        if inferenceMode, let gridSampler = metalGridSampler {
+            // Inference mode: Use Metal compute shader (memory-efficient)
+            let device = MTLCreateSystemDefaultDevice()!
+            let inputBuffer = input.asMTLBuffer(device: device, noCopy: true)!
+            let gridBuffer = grid.asMTLBuffer(device: device, noCopy: true)!
+
+            let outputBuffer = try! gridSampler.gridSample(
+                input: inputBuffer,
+                inputShape: input.shape,
+                grid: gridBuffer,
+                gridShape: grid.shape,
+                alignCorners: alignCorners,
+                mode: mode
+            )
+
+            // Convert output buffer back to MLXArray
+            let outputShape = gridSampler.getOutputShape(inputShape: input.shape, gridShape: grid.shape)
+            let elementCount = outputShape.reduce(1, *)
+            let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: elementCount)
+
+            // Copy data to avoid buffer being released when outputBuffer goes out of scope
+            let copiedData = Array(UnsafeBufferPointer(start: pointer, count: elementCount))
+            let result = MLXArray(copiedData, outputShape)
+
+            return result
+        } else {
+            // Training mode: Use standard MLX grid sample (supports gradients)
+            return gridSample(input, grid: grid, alignCorners: alignCorners, mode: mode)
+        }
     }
 
     /// Query triplane representation at given 3D positions
@@ -107,7 +190,7 @@ nonisolated public final class TriplaneNeRFRenderer: Module {
             let reshapedIndices = indices2D.expandedDimensions(axis: 1)  // Add singleton dimension at axis 1
 
             // Grid sample with bilinear interpolation and align_corners=False
-            let out = gridSample(
+            let out = performGridSample(
                 triplane,               // [Np=3, Cp, Hp, Wp]
                 grid: reshapedIndices,  // [Np=3, 1, N, Nd=2]
                 alignCorners: false,
@@ -128,13 +211,37 @@ nonisolated public final class TriplaneNeRFRenderer: Module {
                 fatalError("Feature reduction method not implemented: \(config.featureReduction)")
             }
 
-            return decoder(reducedOut)
+            let result = decoder(reducedOut)
+
+            // In inference mode, eagerly evaluate and clear cache after each chunk
+            if inferenceMode {
+                MLX.eval(result.density, result.features)
+                MLX.GPU.clearCache()
+            }
+
+            return result
         }
 
         let netOut: NeRFDecoderOutput
+
+        // Determine chunk size: use manual value if set, otherwise auto-calculate
+        let effectiveChunkSize: Int
         if chunkSize > 0 {
-            // Process in chunks
-            let chunks = chunkBatch(queryChunk, chunkSize: chunkSize, normalizedPositions)
+            effectiveChunkSize = chunkSize
+        } else {
+            // Auto-calculate based on available GPU memory
+            let totalSamples = normalizedPositions.dim(0)
+            let triplaneDim = triplane.dim(1)  // Triplane channel dimension
+            effectiveChunkSize = calculateOptimalChunkSize(
+                totalSamples: totalSamples,
+                triplaneDim: triplaneDim
+            )
+        }
+
+        // Process in chunks if effective chunk size is less than total samples
+        let totalSamples = normalizedPositions.dim(0)
+        if effectiveChunkSize < totalSamples {
+            let chunks = chunkBatch(queryChunk, chunkSize: effectiveChunkSize, normalizedPositions)
             netOut = combineChunkedResults(chunks)
         } else {
             netOut = queryChunk(normalizedPositions)
@@ -151,7 +258,7 @@ nonisolated public final class TriplaneNeRFRenderer: Module {
         let densityActReshaped = densityAct.reshaped(finalShape)
         let features = netOut.features.reshaped(inputShape + [netOut.features.dim(-1)])
         let colorReshaped = color.reshaped(inputShape + [color.dim(-1)])
-
+        
         return NeRFRendererOutput(
             density: density,
             densityAct: densityActReshaped,

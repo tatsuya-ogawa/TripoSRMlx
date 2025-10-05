@@ -151,7 +151,7 @@ class TSRTestViewModel: ObservableObject {
                 await MainActor.run {
                     // Extract UIImages from render results
                     if let firstBatch = renderResults.first {
-                        self.renderedViews = firstBatch.compactMap { MLX.stopGradient($0).toUIImage()}
+                        self.renderedViews = firstBatch.compactMap { $0.toUIImage()}
                     }
 
                     self.progress = 1.0
