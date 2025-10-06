@@ -26,6 +26,7 @@ struct ARModelPlacementView: View {
     @State private var horizontalOffset: Float = 0.0 // Left/Right: -1.0 to 1.0
     @State private var depthOffset: Float = 1.5 // Forward/Back: 0.5 to 3.0
     @State private var modelScale: Float = 1.0 // Scale: 0.5 to 3.0
+    @State private var bringObjectsToFront = false
 
     init(file: SavedOBJFile? = nil, objContent: String? = nil) {
         self.file = file
@@ -43,6 +44,7 @@ struct ARModelPlacementView: View {
                         file: selectedFile,
                         maxObjects: maxObjects,
                         showMesh: showMesh,
+                        bringToFront: bringObjectsToFront,
                         horizontalOffset: horizontalOffset,
                         depthOffset: depthOffset,
                         modelScale: modelScale,
@@ -87,6 +89,18 @@ struct ARModelPlacementView: View {
                             Spacer()
 
                             VStack(spacing: 8) {
+                                // Bring-to-front toggle button
+                                Button(action: {
+                                    bringObjectsToFront.toggle()
+                                }) {
+                                    Image(systemName: bringObjectsToFront ? "rectangle.stack.fill" : "rectangle.stack")
+                                        .font(.title)
+                                        .foregroundColor(bringObjectsToFront ? .yellow : .white)
+                                        .padding()
+                                        .background(Color.black.opacity(0.5))
+                                        .clipShape(Circle())
+                                }
+
                                 // Model list toggle button
                                 Button(action: {
                                     withAnimation {
@@ -544,6 +558,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
     let file: SavedOBJFile
     let maxObjects: Int
     let showMesh: Bool
+    let bringToFront: Bool
     let horizontalOffset: Float
     let depthOffset: Float
     let modelScale: Float
@@ -577,6 +592,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
 
     func updateUIView(_ uiView: ARSCNView, context: Context) {
         context.coordinator.updateMeshVisibility(showMesh: showMesh)
+        context.coordinator.updateBringToFront(isEnabled: bringToFront)
         context.coordinator.updatePreviewPosition(horizontal: horizontalOffset, depth: depthOffset)
         context.coordinator.updateModelScale(scale: modelScale)
     }
@@ -607,6 +623,9 @@ struct ARCraneViewContainer: UIViewRepresentable {
         var cachedModelTemplate: SCNNode?
         var cachedObjHash: Int?
         var baseModelScale: Float = 1.0 // The scale needed to normalize model to 20cm
+        var bringToFrontEnabled = false
+        var normalizedBoundingBoxSize = simd_float3(repeating: 0.2)
+        let meshFrontPadding: Float = 0.01
 
         init(objContent: String, file: SavedOBJFile, maxObjects: Int, currentObjectCount: Binding<Int>) {
             self.objContent = objContent
@@ -640,6 +659,19 @@ struct ARCraneViewContainer: UIViewRepresentable {
             }
         }
 
+        func updateBringToFront(isEnabled: Bool) {
+            guard bringToFrontEnabled != isEnabled else { return }
+            bringToFrontEnabled = isEnabled
+
+            applyBringToFrontSettings(to: previewNode, isEnabled: isEnabled)
+            for object in droppedObjects {
+                applyBringToFrontSettings(to: object, isEnabled: isEnabled)
+            }
+
+            updateAllMeshNodeDepthSettings()
+            updatePreviewToFollowCamera()
+        }
+
         func updatePreviewPosition(horizontal: Float, depth: Float) {
             // Store offset values for continuous camera tracking
             self.horizontalOffset = horizontal
@@ -656,6 +688,79 @@ struct ARCraneViewContainer: UIViewRepresentable {
                 // Update physics body to match the new scale
                 updatePhysicsBodyForScale(node: preview, scale: CGFloat(finalScale))
             }
+
+            updatePreviewToFollowCamera()
+        }
+
+        private func applyBringToFrontSettings(to node: SCNNode?, isEnabled: Bool) {
+            guard let node = node else { return }
+            updateDepthProperties(for: node, bringToFront: isEnabled)
+        }
+
+        private func updateDepthProperties(for node: SCNNode, bringToFront: Bool) {
+            node.renderingOrder = bringToFront ? 1000 : 0
+
+            if let geometry = node.geometry {
+                for material in geometry.materials {
+                    material.readsFromDepthBuffer = !bringToFront
+                    material.writesToDepthBuffer = true
+                }
+            }
+
+            node.enumerateChildNodes { child, _ in
+                self.updateDepthProperties(for: child, bringToFront: bringToFront)
+            }
+        }
+
+        private func updateAllMeshNodeDepthSettings() {
+            for (_, meshNode) in meshAnchors {
+                configure(meshNode: meshNode)
+            }
+        }
+
+        private func configure(meshNode: SCNNode) {
+            meshNode.renderingOrder = bringToFrontEnabled ? -100 : 0
+
+            if let geometry = meshNode.geometry {
+                for material in geometry.materials {
+                    material.readsFromDepthBuffer = true
+                    material.writesToDepthBuffer = bringToFrontEnabled ? false : true
+                }
+            }
+        }
+
+        private func currentBoundingFrontOffset(for direction: simd_float3) -> Float {
+            let normalizedDirection = simd_normalize(direction)
+            let absDirection = simd_abs(normalizedDirection)
+            let scaledSize = normalizedBoundingBoxSize * modelScale
+            let halfExtents = scaledSize / 2
+            return simd_dot(absDirection, halfExtents)
+        }
+
+        private func performFrontRaycast(origin: simd_float3, direction: simd_float3) -> ARRaycastResult? {
+            guard let arView = arView else { return nil }
+
+            let normalizedDirection = simd_normalize(direction)
+
+            let primaryQuery = ARRaycastQuery(
+                origin: origin,
+                direction: normalizedDirection,
+                allowing: .existingPlaneGeometry,
+                alignment: .any
+            )
+
+            if let result = arView.session.raycast(primaryQuery).first {
+                return result
+            }
+
+            let fallbackQuery = ARRaycastQuery(
+                origin: origin,
+                direction: normalizedDirection,
+                allowing: .estimatedPlane,
+                alignment: .any
+            )
+
+            return arView.session.raycast(fallbackQuery).first
         }
 
         func updatePhysicsBodyForScale(node: SCNNode, scale: CGFloat) {
@@ -726,8 +831,31 @@ struct ARCraneViewContainer: UIViewRepresentable {
                 transform.columns.3.z
             )
 
-            // Always position in front of camera with offsets
-            let newPosition = cameraPosition + forward * depthOffset + right * horizontalOffset
+            // Calculate base origin with horizontal offset applied
+            let origin = cameraPosition + right * horizontalOffset
+
+            let forwardDirection = simd_normalize(forward)
+
+            let newPosition: simd_float3
+
+            if bringToFrontEnabled,
+               let hit = performFrontRaycast(origin: origin, direction: forwardDirection) {
+                let offset = currentBoundingFrontOffset(for: forwardDirection) + meshFrontPadding
+
+                let hitTransform = hit.worldTransform
+                let hitPosition = simd_float3(
+                    hitTransform.columns.3.x,
+                    hitTransform.columns.3.y,
+                    hitTransform.columns.3.z
+                )
+
+                let rayDistance = simd_dot(hitPosition - origin, forwardDirection)
+                let rawDistance = rayDistance - offset
+                let desiredDistance = max(rawDistance, 0.02)
+                newPosition = origin + forwardDirection * desiredDistance
+            } else {
+                newPosition = origin + forwardDirection * depthOffset
+            }
 
             preview.position = SCNVector3(newPosition.x, newPosition.y, newPosition.z)
         }
@@ -749,6 +877,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
             applyPreviewOpacity(to: modelNode)
 
             previewNode = modelNode
+            applyBringToFrontSettings(to: previewNode, isEnabled: bringToFrontEnabled)
             attachPreviewIfNeeded()
             updatePreviewToFollowCamera()
         }
@@ -783,6 +912,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
 
             // Restore full opacity
             restoreOpacity(for: preview)
+            applyBringToFrontSettings(to: preview, isEnabled: bringToFrontEnabled)
 
             // Preserve the current scale on the dropped object
             // (preview already has the scale applied from updateModelScale)
@@ -939,6 +1069,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
 
             // Initially hidden
             meshNode.isHidden = true
+            configure(meshNode: meshNode)
         }
 
         func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
@@ -964,6 +1095,8 @@ struct ARCraneViewContainer: UIViewRepresentable {
                 let physicsBody = SCNPhysicsBody(type: .static, shape: shape)
                 physicsBody.categoryBitMask = 2
                 node.physicsBody = physicsBody
+
+                configure(meshNode: meshNode)
             }
         }
 
@@ -1086,6 +1219,7 @@ struct ARCraneViewContainer: UIViewRepresentable {
             let maxDimension = Swift.max(size.x, size.y, size.z)
             let desiredSize: Float = 0.2 // 20cm
             baseModelScale = desiredSize / maxDimension
+            normalizedBoundingBoxSize = simd_float3(size.x, size.y, size.z) * baseModelScale
 
             // Wrapper keeps preview transforms independent of geometry adjustments
             let wrapperNode = SCNNode()
