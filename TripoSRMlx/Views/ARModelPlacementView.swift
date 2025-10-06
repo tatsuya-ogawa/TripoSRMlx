@@ -180,7 +180,7 @@ struct ARModelPlacementView: View {
                                         }
 
                                         Button(action: {
-                                            depthOffset = max(0.5, depthOffset - 0.2)
+                                            depthOffset = max(0.2, depthOffset - 0.2)
                                         }) {
                                             Image(systemName: "arrow.down")
                                                 .font(.title2)
@@ -231,7 +231,7 @@ struct ARModelPlacementView: View {
                                     // Scale controls
                                     HStack(spacing: 12) {
                                         Button(action: {
-                                            modelScale = max(0.5, modelScale - 0.2)
+                                            modelScale = max(0.2, modelScale - 0.2)
                                         }) {
                                             Image(systemName: "minus.magnifyingglass")
                                                 .font(.title2)

@@ -15,7 +15,7 @@ struct TripoSRMlxApp: App {
 
     init() {
         // Run model mapping check automatically at app startup
-        ModelMappingChecker.runStartupCheck()
+//        ModelMappingChecker.runStartupCheck()
 
         // Run debug check for spherical cameras and ray intersections
 //        debugSphericalCamerasAndIntersections()
