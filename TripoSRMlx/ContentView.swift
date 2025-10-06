@@ -8,10 +8,24 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var showingDevMenu = false
+    @State private var showingARView = false
+
     var body: some View {
         NavigationView {
             VStack(spacing: 30) {
-                // Header
+                // Header with hamburger menu
+                HStack {
+                    Spacer()
+
+                    NavigationLink(destination: DevMenuView()) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                            .padding()
+                    }
+                }
+
                 VStack(spacing: 10) {
                     Image(systemName: "cube.transparent")
                         .font(.system(size: 80))
@@ -26,12 +40,14 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
 
-                // Navigation buttons
-                VStack(spacing: 16) {
+                Spacer()
+
+                // Main Navigation buttons
+                VStack(spacing: 20) {
                     NavigationLink(destination: TSRTestView()) {
                         MenuButton(
-                            title: "TripoSR Demo",
-                            subtitle: "Generate 3D models from images",
+                            title: "Generate 3D Model",
+                            subtitle: "Create 3D models from images",
                             icon: "cube.fill",
                             color: .green
                         )
@@ -40,44 +56,19 @@ struct ContentView: View {
                     NavigationLink(destination: SavedModelsView()) {
                         MenuButton(
                             title: "Saved Models",
-                            subtitle: "View and manage saved OBJ files",
+                            subtitle: "View and manage your models",
                             icon: "folder.fill",
                             color: .orange
                         )
                     }
 
-                    NavigationLink(destination: ModelInspectionView()) {
+                    Button(action: {
+                        showingARView = true
+                    }) {
                         MenuButton(
-                            title: "Model Inspector",
-                            subtitle: "Inspect TSRSystem components and state_dict",
-                            icon: "doc.text.magnifyingglass",
-                            color: .blue
-                        )
-                    }
-
-                    NavigationLink(destination: ModelMappingView()) {
-                        MenuButton(
-                            title: "Model Mapping Checker",
-                            subtitle: "Compare PyTorch vs MLX parameters",
-                            icon: "checkmark.shield.fill",
-                            color: .red
-                        )
-                    }
-
-                    NavigationLink(destination: DINOOutputExporterView()) {
-                        MenuButton(
-                            title: "DINO Output Exporter",
-                            subtitle: "Export MLX DINO outputs for Python comparison",
-                            icon: "brain.head.profile",
-                            color: .indigo
-                        )
-                    }
-
-                    NavigationLink(destination: MarchingCubesTestView()) {
-                        MenuButton(
-                            title: "Marching Cubes Test",
-                            subtitle: "Test marching cubes with synthetic sphere data",
-                            icon: "cube.transparent.fill",
+                            title: "AR Mode",
+                            subtitle: "Place models in augmented reality",
+                            icon: "arkit",
                             color: .purple
                         )
                     }
@@ -101,6 +92,9 @@ struct ContentView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .fullScreenCover(isPresented: $showingARView) {
+            ARModelPlacementView()
+        }
     }
 }
 

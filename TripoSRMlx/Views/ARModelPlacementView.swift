@@ -10,13 +10,13 @@ import ARKit
 import SceneKit
 
 struct ARModelPlacementView: View {
-    let file: SavedOBJFile
-    let objContent: String
+    let file: SavedOBJFile?
+    let objContent: String?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = SavedModelsViewModel()
-    @State private var selectedFile: SavedOBJFile
-    @State private var selectedOBJContent: String
+    @State private var selectedFile: SavedOBJFile?
+    @State private var selectedOBJContent: String?
     @State private var arSupported = false
     @State private var showingPlacementInstructions = true
     @State private var showingModelList = false
@@ -27,7 +27,7 @@ struct ARModelPlacementView: View {
     @State private var depthOffset: Float = 1.5 // Forward/Back: 0.5 to 3.0
     @State private var modelScale: Float = 1.0 // Scale: 0.5 to 3.0
 
-    init(file: SavedOBJFile, objContent: String) {
+    init(file: SavedOBJFile? = nil, objContent: String? = nil) {
         self.file = file
         self.objContent = objContent
         _selectedFile = State(initialValue: file)
@@ -37,232 +37,330 @@ struct ARModelPlacementView: View {
     var body: some View {
         ZStack {
             if arSupported {
-                ARCraneViewContainer(
-                    objContent: selectedOBJContent,
-                    file: selectedFile,
-                    maxObjects: maxObjects,
-                    showMesh: showMesh,
-                    horizontalOffset: horizontalOffset,
-                    depthOffset: depthOffset,
-                    modelScale: modelScale,
-                    currentObjectCount: $currentObjectCount
-                )
-                .edgesIgnoringSafeArea(.all)
-                .id(selectedFile.id) // Force recreate when file changes
+                if let selectedFile = selectedFile, let selectedOBJContent = selectedOBJContent {
+                    ARCraneViewContainer(
+                        objContent: selectedOBJContent,
+                        file: selectedFile,
+                        maxObjects: maxObjects,
+                        showMesh: showMesh,
+                        horizontalOffset: horizontalOffset,
+                        depthOffset: depthOffset,
+                        modelScale: modelScale,
+                        currentObjectCount: $currentObjectCount
+                    )
+                    .edgesIgnoringSafeArea(.all)
+                    .id(selectedFile.id) // Force recreate when file changes
 
-                // Overlay UI
-                VStack {
-                    // Top bar
-                    HStack {
-                        Button(action: {
-                            dismiss()
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(Color.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-
-                        Spacer()
-
-                        VStack(spacing: 4) {
-                            Text(selectedFile.name)
-                                .font(.headline)
-                                .foregroundColor(.white)
-
-                            // Ammo counter
-                            Text("\(currentObjectCount) / \(maxObjects)")
-                                .font(.caption)
-                                .foregroundColor(currentObjectCount >= maxObjects ? .red : .white)
-                                .fontWeight(.bold)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(20)
-
-                        Spacer()
-
-                        VStack(spacing: 8) {
-                            // Model list toggle button
+                    // Overlay UI
+                    VStack {
+                        // Top bar
+                        HStack {
                             Button(action: {
-                                withAnimation {
-                                    showingModelList.toggle()
-                                }
+                                dismiss()
                             }) {
-                                Image(systemName: showingModelList ? "list.bullet.circle.fill" : "list.bullet.circle")
+                                Image(systemName: "xmark.circle.fill")
                                     .font(.title)
                                     .foregroundColor(.white)
                                     .padding()
                                     .background(Color.black.opacity(0.5))
                                     .clipShape(Circle())
                             }
-
-                            // Mesh toggle button
-                            Button(action: {
-                                showMesh.toggle()
-                            }) {
-                                Image(systemName: showMesh ? "cube.fill" : "cube")
-                                    .font(.title)
-                                    .foregroundColor(showMesh ? .green : .white)
-                                    .padding()
-                                    .background(Color.black.opacity(0.5))
-                                    .clipShape(Circle())
-                            }
-                        }
-                    }
-                    .padding()
-
-                    Spacer()
-
-                    VStack(spacing: 16) {
-                        // Instructions at top
-                        if showingPlacementInstructions {
-                            VStack(spacing: 12) {
-                                Text("Use controls to position, then drop")
-                                    .font(.subheadline)
-                                    .foregroundColor(.white)
-
-                                Text("Max \(maxObjects) objects")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-
-                                Button(action: {
-                                    showingPlacementInstructions = false
-                                }) {
-                                    Text("Got it")
-                                        .font(.caption)
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(Color.blue)
-                                        .cornerRadius(20)
-                                }
-                            }
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(16)
-                        }
-
-                        Spacer()
-
-                        HStack(alignment: .bottom, spacing: 16) {
-                            // Control buttons on bottom left
-                            VStack(spacing: 12) {
-                                // Depth controls (forward/back)
-                                HStack(spacing: 12) {
-                                    Button(action: {
-                                        depthOffset = min(3.0, depthOffset + 0.2)
-                                    }) {
-                                        Image(systemName: "arrow.up")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-
-                                    Button(action: {
-                                        depthOffset = max(0.5, depthOffset - 0.2)
-                                    }) {
-                                        Image(systemName: "arrow.down")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-                                }
-
-                                // Horizontal controls (left/right)
-                                HStack(spacing: 12) {
-                                    Button(action: {
-                                        horizontalOffset = max(-1.0, horizontalOffset - 0.1)
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-
-                                    Button(action: {
-                                        horizontalOffset = max(-1.0, min(1.0, 0))
-                                        depthOffset = 1.5
-                                    }) {
-                                        Image(systemName: "arrow.counterclockwise")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-
-                                    Button(action: {
-                                        horizontalOffset = min(1.0, horizontalOffset + 0.1)
-                                    }) {
-                                        Image(systemName: "arrow.right")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-                                }
-
-                                // Scale controls
-                                HStack(spacing: 12) {
-                                    Button(action: {
-                                        modelScale = max(0.5, modelScale - 0.2)
-                                    }) {
-                                        Image(systemName: "minus.magnifyingglass")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-
-                                    Text(String(format: "%.1fx", modelScale))
-                                        .font(.caption)
-                                        .foregroundColor(.white)
-                                        .frame(width: 62)
-
-                                    Button(action: {
-                                        modelScale = min(3.0, modelScale + 0.2)
-                                    }) {
-                                        Image(systemName: "plus.magnifyingglass")
-                                            .font(.title2)
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(10)
-                                    }
-                                }
-
-                                // Drop button
-                                Button(action: {
-                                    // Trigger drop via notification
-                                    NotificationCenter.default.post(name: NSNotification.Name("DropObject"), object: nil)
-                                }) {
-                                    Text("DROP")
-                                        .font(.headline)
-                                        .foregroundColor(.white)
-                                        .frame(width: 162, height: 50)
-                                        .background(currentObjectCount >= maxObjects ? Color.red : Color.green)
-                                        .cornerRadius(10)
-                                }
-                                .disabled(currentObjectCount >= maxObjects)
-                            }
-                            .padding()
 
                             Spacer()
 
-                            // Model list on bottom right
-                            if showingModelList {
+                            VStack(spacing: 4) {
+                                Text(selectedFile.name)
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+
+                                // Ammo counter
+                                Text("\(currentObjectCount) / \(maxObjects)")
+                                    .font(.caption)
+                                    .foregroundColor(currentObjectCount >= maxObjects ? .red : .white)
+                                    .fontWeight(.bold)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.5))
+                            .cornerRadius(20)
+
+                            Spacer()
+
+                            VStack(spacing: 8) {
+                                // Model list toggle button
+                                Button(action: {
+                                    withAnimation {
+                                        showingModelList.toggle()
+                                    }
+                                }) {
+                                    Image(systemName: showingModelList ? "list.bullet.circle.fill" : "list.bullet.circle")
+                                        .font(.title)
+                                        .foregroundColor(.white)
+                                        .padding()
+                                        .background(Color.black.opacity(0.5))
+                                        .clipShape(Circle())
+                                }
+
+                                // Mesh toggle button
+                                Button(action: {
+                                    showMesh.toggle()
+                                }) {
+                                    Image(systemName: showMesh ? "cube.fill" : "cube")
+                                        .font(.title)
+                                        .foregroundColor(showMesh ? .green : .white)
+                                        .padding()
+                                        .background(Color.black.opacity(0.5))
+                                        .clipShape(Circle())
+                                }
+                            }
+                        }
+                        .padding()
+
+                        Spacer()
+
+                        VStack(spacing: 16) {
+                            // Instructions at top
+                            if showingPlacementInstructions {
+                                VStack(spacing: 12) {
+                                    Text("Use controls to position, then drop")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white)
+
+                                    Text("Max \(maxObjects) objects")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.8))
+
+                                    Button(action: {
+                                        showingPlacementInstructions = false
+                                    }) {
+                                        Text("Got it")
+                                            .font(.caption)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background(Color.blue)
+                                            .cornerRadius(20)
+                                    }
+                                }
+                                .padding()
+                                .background(Color.black.opacity(0.7))
+                                .cornerRadius(16)
+                            }
+
+                            Spacer()
+
+                            HStack(alignment: .bottom, spacing: 16) {
+                                // Control buttons on bottom left
+                                VStack(spacing: 12) {
+                                    // Depth controls (forward/back)
+                                    HStack(spacing: 12) {
+                                        Button(action: {
+                                            depthOffset = min(3.0, depthOffset + 0.2)
+                                        }) {
+                                            Image(systemName: "arrow.up")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+
+                                        Button(action: {
+                                            depthOffset = max(0.5, depthOffset - 0.2)
+                                        }) {
+                                            Image(systemName: "arrow.down")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+                                    }
+
+                                    // Horizontal controls (left/right)
+                                    HStack(spacing: 12) {
+                                        Button(action: {
+                                            horizontalOffset = max(-1.0, horizontalOffset - 0.1)
+                                        }) {
+                                            Image(systemName: "arrow.left")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+
+                                        Button(action: {
+                                            horizontalOffset = max(-1.0, min(1.0, 0))
+                                            depthOffset = 1.5
+                                        }) {
+                                            Image(systemName: "arrow.counterclockwise")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+
+                                        Button(action: {
+                                            horizontalOffset = min(1.0, horizontalOffset + 0.1)
+                                        }) {
+                                            Image(systemName: "arrow.right")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+                                    }
+
+                                    // Scale controls
+                                    HStack(spacing: 12) {
+                                        Button(action: {
+                                            modelScale = max(0.5, modelScale - 0.2)
+                                        }) {
+                                            Image(systemName: "minus.magnifyingglass")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+
+                                        Text(String(format: "%.1fx", modelScale))
+                                            .font(.caption)
+                                            .foregroundColor(.white)
+                                            .frame(width: 62)
+
+                                        Button(action: {
+                                            modelScale = min(3.0, modelScale + 0.2)
+                                        }) {
+                                            Image(systemName: "plus.magnifyingglass")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                                .frame(width: 50, height: 50)
+                                                .background(Color.black.opacity(0.6))
+                                                .cornerRadius(10)
+                                        }
+                                    }
+
+                                    // Drop button
+                                    Button(action: {
+                                        // Trigger drop via notification
+                                        NotificationCenter.default.post(name: NSNotification.Name("DropObject"), object: nil)
+                                    }) {
+                                        Text("DROP")
+                                            .font(.headline)
+                                            .foregroundColor(.white)
+                                            .frame(width: 162, height: 50)
+                                            .background(currentObjectCount >= maxObjects ? Color.red : Color.green)
+                                            .cornerRadius(10)
+                                    }
+                                    .disabled(currentObjectCount >= maxObjects)
+                                }
+                                .padding()
+
+                                Spacer()
+
+                                // Model list on bottom right
+                                if showingModelList {
+                                    ModelListView(
+                                        models: viewModel.savedFiles,
+                                        selectedFile: $selectedFile,
+                                        selectedOBJContent: $selectedOBJContent,
+                                        onClose: {
+                                            withAnimation {
+                                                showingModelList = false
+                                            }
+                                        }
+                                    )
+                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                } else {
+                    // No model selected - show selection prompt
+                    VStack {
+                        HStack {
+                            Button(action: {
+                                dismiss()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title)
+                                    .foregroundColor(.white)
+                                    .padding()
+                                    .background(Color.black.opacity(0.5))
+                                    .clipShape(Circle())
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                withAnimation {
+                                    showingModelList = true
+                                }
+                            }) {
+                                Image(systemName: "list.bullet.circle")
+                                    .font(.title)
+                                    .foregroundColor(.white)
+                                    .padding()
+                                    .background(Color.black.opacity(0.5))
+                                    .clipShape(Circle())
+                            }
+                        }
+                        .padding()
+
+                        Spacer()
+
+                        VStack(spacing: 20) {
+                            Image(systemName: "cube.transparent")
+                                .font(.system(size: 80))
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+
+                            Text("Select a Model")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+
+                            Text("Tap the menu button to choose a model from your saved collection")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.9))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+
+                            Button(action: {
+                                withAnimation {
+                                    showingModelList = true
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "list.bullet")
+                                    Text("Select Model")
+                                }
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 16)
+                                .background(Color.blue)
+                                .cornerRadius(12)
+                            }
+                        }
+                        .padding()
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(20)
+                        .padding()
+
+                        Spacer()
+
+                        if showingModelList {
+                            HStack {
+                                Spacer()
+
                                 ModelListView(
                                     models: viewModel.savedFiles,
                                     selectedFile: $selectedFile,
@@ -275,8 +373,8 @@ struct ARModelPlacementView: View {
                                 )
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                             }
+                            .padding()
                         }
-                        .padding()
                     }
                 }
             } else {
@@ -322,8 +420,8 @@ struct ARModelPlacementView: View {
 
 struct ModelListView: View {
     let models: [SavedOBJFile]
-    @Binding var selectedFile: SavedOBJFile
-    @Binding var selectedOBJContent: String
+    @Binding var selectedFile: SavedOBJFile?
+    @Binding var selectedOBJContent: String?
     let onClose: () -> Void
 
     private let fileManager = OBJFileManager()
@@ -352,7 +450,7 @@ struct ModelListView: View {
                     ForEach(models) { model in
                         ModelListItemView(
                             model: model,
-                            isSelected: model.id == selectedFile.id,
+                            isSelected: model.id == selectedFile?.id,
                             onTap: {
                                 selectModel(model)
                             }
